@@ -1,0 +1,7 @@
+{
+  "llama_ref": "b10883",
+  "hypernix_repo": "trail-b1az3r/HyperNix-pip",
+  "hypernix_commit": "3a2da72b4f068fb30ea55bcc069985ed9d44cfbc",
+  "native_path": "native/ggml-hnx",
+  "native_tree": "c5c09f199f244ccd1df11d751ddbed5de748ab04"
+}

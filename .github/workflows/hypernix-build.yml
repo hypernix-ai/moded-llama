@@ -1,0 +1,215 @@
+name: hypernix-build
+
+# Keeps this repository and its releases in step with HyperNix-pip's
+# native/ggml-hnx folder.
+#
+#   detect   Has native/ggml-hnx changed since the last release? It compares
+#            the git tree hash of that folder, so commits elsewhere in
+#            HyperNix-pip do not cause a rebuild.
+#   sync     Rebuilds the llama.cpp tree in this repository from HyperNix-pip
+#            (hypernix/sync-source.sh), gated on the decoder-vs-Python
+#            self-test, and commits it.
+#   build    Compiles that commit: CPU, and CUDA (in an NVIDIA devel image).
+#   release  Publishes a release "native-<tree hash>" with both builds.
+#
+# What starts it:
+#   repository_dispatch   HyperNix-pip's notify-moded-llama workflow, the moment
+#                         native/ggml-hnx changes on main (needs a secret there)
+#   schedule              every 6 hours, as the fallback that needs no secret
+#   workflow_dispatch     by hand; "force" rebuilds an unchanged folder
+#   push                  a change to this workflow or to hypernix/ rebuilds
+#
+# Compiled builds go in Releases, not in git: a CUDA library alone can pass
+# GitHub's 100 MB file limit, and a binary committed on every native change
+# would grow the history without bound.
+#
+# This commits to the branch it runs on, using the workflow's own token.
+
+on:
+  repository_dispatch:
+    types: [hypernix-native-updated]
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebuild even if native/ggml-hnx is unchanged"
+        type: boolean
+        default: false
+      hypernix_ref:
+        description: "HyperNix-pip branch to take native/ggml-hnx from"
+        type: string
+        default: main
+  push:
+    paths:
+      - ".github/workflows/hypernix-build.yml"
+      - "hypernix/**"
+
+permissions:
+  contents: write
+
+# One at a time, queued rather than cancelled: a run that is half way through
+# a release must finish.
+concurrency:
+  group: hypernix-build
+  cancel-in-progress: false
+
+env:
+  HYPERNIX_REPO: trail-b1az3r/HyperNix-pip
+  # The part of HyperNix-pip whose changes matter. Widen to "native" to also
+  # rebuild when native/llama-easy changes (it has nothing to do with llama.cpp).
+  NATIVE_PATH: native/ggml-hnx
+
+jobs:
+  detect:
+    runs-on: ubuntu-22.04
+    outputs:
+      build: ${{ steps.d.outputs.build }}
+      tree: ${{ steps.d.outputs.tree }}
+      short: ${{ steps.d.outputs.short }}
+      hypernix_commit: ${{ steps.d.outputs.hypernix_commit }}
+    steps:
+      - id: d
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HYPERNIX_REF: ${{ inputs.hypernix_ref || 'main' }}
+          FORCE: ${{ (inputs.force || github.event_name == 'push') && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 --filter=blob:none --sparse --branch "$HYPERNIX_REF" \
+            "https://github.com/$HYPERNIX_REPO" hp
+          git -C hp sparse-checkout set "$NATIVE_PATH"
+          tree="$(git -C hp rev-parse "HEAD:$NATIVE_PATH")"
+          short="${tree:0:12}"
+          commit="$(git -C hp rev-parse HEAD)"
+
+          build=true
+          if gh release view "native-$short" >/dev/null 2>&1 && [ "$FORCE" != "true" ]; then
+            build=false
+          fi
+
+          {
+            echo "build=$build"
+            echo "tree=$tree"
+            echo "short=$short"
+            echo "hypernix_commit=$commit"
+          } >> "$GITHUB_OUTPUT"
+          echo "$NATIVE_PATH tree $short (HyperNix-pip $commit): build=$build, force=$FORCE"
+
+  sync:
+    needs: detect
+    if: needs.detect.outputs.build == 'true'
+    runs-on: ubuntu-22.04
+    outputs:
+      commit: ${{ steps.push.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HYPERNIX_REPO }}
+          ref: ${{ needs.detect.outputs.hypernix_commit }}
+          path: hp
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install numpy
+      - name: Rebuild the llama.cpp tree from HyperNix-pip
+        run: hypernix/sync-source.sh hp
+      - id: push
+        env:
+          SHORT: ${{ needs.detect.outputs.short }}
+        run: |
+          set -euo pipefail
+          rm -rf hp
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "the tree already matches; nothing to commit"
+          else
+            ref="$(jq -r .llama_ref .hypernix-sync.json)"
+            git commit -q -m "sync: HyperNix native/ggml-hnx $SHORT on llama.cpp $ref"
+            git push origin "HEAD:$GITHUB_REF_NAME"
+          fi
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-cpu:
+    needs: [detect, sync]
+    # 22.04, not latest: the binaries need a glibc no newer than their users'.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.sync.outputs.commit }}
+      - run: hypernix/build.sh cpu
+      - run: hypernix/package.sh cpu moded-llama-linux-x86_64-cpu dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moded-llama-linux-x86_64-cpu
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  build-cuda:
+    needs: [detect, sync]
+    runs-on: ubuntu-22.04
+    # nvcc and the CUDA headers come from the image. The build needs no GPU;
+    # running it needs the NVIDIA driver and CUDA 12 runtime libraries.
+    container: nvidia/cuda:12.4.1-devel-ubuntu22.04
+    timeout-minutes: 180
+    steps:
+      - name: Build tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake build-essential jq ca-certificates
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.sync.outputs.commit }}
+      - run: hypernix/build.sh cuda
+      - run: hypernix/package.sh cuda moded-llama-linux-x86_64-cuda12 dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moded-llama-linux-x86_64-cuda12
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: [detect, sync, build-cpu, build-cuda]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHORT: ${{ needs.detect.outputs.short }}
+          TREE: ${{ needs.detect.outputs.tree }}
+          HP_COMMIT: ${{ needs.detect.outputs.hypernix_commit }}
+          COMMIT: ${{ needs.sync.outputs.commit }}
+        run: |
+          set -euo pipefail
+          tag="native-$SHORT"
+          cat > notes.md <<EOF
+          Builds of llama.cpp with HyperNix-pip's \`$NATIVE_PATH\` (tree \`$TREE\`).
+
+          - HyperNix-pip commit: [\`${HP_COMMIT:0:12}\`](https://github.com/$HYPERNIX_REPO/commit/$HP_COMMIT)
+          - Source: this repository at \`${COMMIT:0:12}\`
+
+          | file | for |
+          |---|---|
+          | \`moded-llama-linux-x86_64-cpu.tar.gz\` | any x86_64 Linux machine |
+          | \`moded-llama-linux-x86_64-cuda12.tar.gz\` | NVIDIA GPUs; needs the NVIDIA driver and CUDA 12 runtime libraries (cudart, cublas) installed |
+
+          Unpack and run \`bin/llama-cli\` or \`bin/llama-server\`. \`BUILD_INFO.txt\` has the exact flags.
+          The HyperNix types run on the CPU backend even in the CUDA build.
+          EOF
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/*.tar.gz --clobber
+          else
+            gh release create "$tag" dist/*.tar.gz \
+              --target "$COMMIT" --title "HyperNix native $SHORT" --notes-file notes.md --latest
+          fi
