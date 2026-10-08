@@ -34,6 +34,7 @@ LLAMA_REPO="${LLAMA_REPO:-https://github.com/ggml-org/llama.cpp.git}"
 
 if [ -z "${LLAMA_REF:-}" ]; then
   # LLAMA_REF="${LLAMA_REF:-b10883}"  ->  b10883
+  # shellcheck disable=SC2016  # the single quotes are the point: a literal ${ in the pattern
   LLAMA_REF="$(sed -n 's/^LLAMA_REF="\${LLAMA_REF:-\([^}]*\)}".*/\1/p' "$NATIVE/build.sh" | head -n1)"
 fi
 [ -n "$LLAMA_REF" ] || { echo "sync-source.sh: could not read LLAMA_REF from $NATIVE/build.sh" >&2; exit 1; }

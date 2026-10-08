@@ -26,6 +26,7 @@ variant_names() { echo "cpu cuda rocm vulkan"; }
 #   GPU_TARGETS  rocm only, e.g. "gfx1030;gfx1100". Unset, upstream's list.
 variant_cmake_args() {
   local variant="${1:?variant}"
+  # shellcheck disable=SC2016  # $ORIGIN is meant literally, for the linker
   printf '%s\n' \
     -DCMAKE_BUILD_TYPE=Release \
     -DGGML_NATIVE=OFF \
