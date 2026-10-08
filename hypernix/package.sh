@@ -26,6 +26,7 @@ fail() { echo "package.sh: $*" >&2; exit 1; }
 [ -d "$BIN" ] || fail "$BIN does not exist; run hypernix/build.sh $VARIANT first"
 
 # 1. the HyperNix types are in the library that holds ggml's type table
+# shellcheck disable=SC2012  # a glob for the one versioned library; names are ours
 base="$(ls "$BIN"/libggml-base.so.*.* 2>/dev/null | head -n1)"
 [ -n "$base" ] || fail "no libggml-base in $BIN"
 for name in IQ0.5_XXXL INT1 HNX_1375BIT; do

@@ -42,6 +42,13 @@ variant_cmake_args() {
     cpu) ;;
     cuda)
       echo "-DGGML_CUDA=ON"
+      # libggml-cuda calls the CUDA *driver* API (cuMemCreate, ...), which
+      # lives in libcuda.so.1 from the NVIDIA driver. A build container has
+      # no driver, only a stub, so linking an executable against it fails
+      # with "undefined reference to cuGetErrorString". The loader finds the
+      # real libcuda at run time. Upstream's .devops/cuda.Dockerfile passes
+      # the same flag for the same reason.
+      echo "-DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined"
       if [ -n "${CUDA_ARCHS:-}" ]; then echo "-DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCHS}"; fi
       ;;
     rocm)
