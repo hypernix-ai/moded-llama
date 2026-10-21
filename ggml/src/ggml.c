@@ -684,6 +684,22 @@ static const struct ggml_type_traits type_traits[GGML_TYPE_COUNT] = {
         .to_float                 = (ggml_to_float_t) hnx_ggml_to_float_hnx1375,
         .from_float_ref           = NULL,
     },
+    [GGML_TYPE_HNX_15125] = {
+        .type_name                = "HNX_15125BIT",
+        .blck_size                = HNX_BLOCK_SIZE,
+        .type_size                = 48,
+        .is_quantized             = true,
+        .to_float                 = (ggml_to_float_t) hnx_ggml_to_float_hnx15125,
+        .from_float_ref           = NULL,
+    },
+    [GGML_TYPE_HNX_IQ1S] = {
+        .type_name                = "HNX_IQ1S",
+        .blck_size                = HNX_BLOCK_SIZE,
+        .type_size                = 50,
+        .is_quantized             = true,
+        .to_float                 = (ggml_to_float_t) hnx_ggml_to_float_hnxiq1s,
+        .from_float_ref           = NULL,
+    },
     [GGML_TYPE_HNX_INT4] = {
         .type_name                = "INT4",
         .blck_size                = HNX_BLOCK_SIZE,

@@ -265,6 +265,18 @@ static const struct ggml_type_traits_cpu type_traits_cpu[GGML_TYPE_COUNT] = {
         .vec_dot_type             = GGML_TYPE_F32,
         .nrows                    = 1,
     },
+    [GGML_TYPE_HNX_15125] = {
+        .from_float               = NULL,
+        .vec_dot                  = (ggml_vec_dot_t) hnx_ggml_vec_dot_hnx15125,
+        .vec_dot_type             = GGML_TYPE_F32,
+        .nrows                    = 1,
+    },
+    [GGML_TYPE_HNX_IQ1S] = {
+        .from_float               = NULL,
+        .vec_dot                  = (ggml_vec_dot_t) hnx_ggml_vec_dot_hnxiq1s,
+        .vec_dot_type             = GGML_TYPE_F32,
+        .nrows                    = 1,
+    },
     [GGML_TYPE_HNX_INT4] = {
         .from_float               = NULL,
         .vec_dot                  = (ggml_vec_dot_t) hnx_ggml_vec_dot_int4,

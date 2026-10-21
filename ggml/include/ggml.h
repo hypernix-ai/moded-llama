@@ -448,8 +448,10 @@ extern "C" {
         GGML_TYPE_HNX_INT2   = 209,
         GGML_TYPE_HNX_INT3   = 210,
         GGML_TYPE_HNX_FP8    = 211,
+        GGML_TYPE_HNX_15125  = 224,
+        GGML_TYPE_HNX_IQ1S   = 225,
         // GGML_HNX_COUNT was: GGML_TYPE_COUNT   = 43,
-        GGML_TYPE_COUNT   = 212,
+        GGML_TYPE_COUNT   = 226,
     };
 
     // [TAG_GGML_PREC]
